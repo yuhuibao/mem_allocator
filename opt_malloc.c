@@ -2,9 +2,13 @@
 #include "xmalloc.h"
 #include <sys/mman.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <limits.h>
 // convert node* ptr to address of the mem block
 #define BLOCK_MEM(ptr) ((void*)((unsigned long long)ptr+sizeof(header)))
 #define BLOCK_HEADER(ptr) ((node*)((unsigned long long)ptr-sizeof(header)))
+#define PAGE 4096
 typedef struct node_t{
     int free;
     size_t size; // size of allocated mem for users but actually allocated size is size+header+footer
@@ -43,7 +47,7 @@ void fl_remove(node* curr){
         curr->next->prev = curr->prev;
     }
 }
-
+/*
 void fl_replace(node* new, node* old){
     if(!old->prev){
         head = new;
@@ -57,10 +61,25 @@ void fl_replace(node* new, node* old){
     }
     new->next = old->next;
 }
+*/
+/*add the new free block to the head of the free list*/
+void fl_insert(node* n){
+    if(!head){
+        head = n;
+        n->prev = NULL;
+        n->next = NULL;
+    }else{ 
+        n->next = head;
+        head->prev = n;
+        head = n;
+        n->prev = NULL;
+    }
+}
 /*splits the block ptr_b by creating a new block after size bytes,
 and return this new block */
 node* split(node* ptr_b, size_t size){
-    node* newptr_b = (node*)((unsigned long long)BLOCK_MEM(ptr_b) + size + sizeof(footer));
+    void* block_mem = BLOCK_MEM(ptr_b);
+    node* newptr_b = (node*)((unsigned long long)block_mem + size + sizeof(footer));
     newptr_b->size =  ptr_b->size - size - sizeof(header) - sizeof(footer);
     newptr_b->free = 0;
     //add footer to the new free block
@@ -78,31 +97,41 @@ node* split(node* ptr_b, size_t size){
 void*
 xmalloc(size_t bytes)
 {
-    void* block_mem;
+    void *block_mem, *ptr;
     node *curr=head, *newptr;
     while(curr){
         if(curr->size >= bytes){
             block_mem = BLOCK_MEM(curr);
-            if(curr->size > bytes){
-                newptr = split(curr,bytes);
-                // the new block just stick to the original place, no need to keep sorted
-                fl_replace(newptr,curr);
+            fl_remove(curr);
+            if(curr->size == bytes){
                 return block_mem;
             }
-            fl_remove(curr);
+            newptr = split(curr,bytes);
+            // insert the new free block
+            fl_insert(newptr);
             return block_mem;
         }else{
             curr = curr->next;
         }
     }
     /*unable to find a free block on the free list, so ask the kernel using mmap*/
-    curr = mmap(0,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
-    assert_ok((long)curr,"mmap");
+    ptr = mmap(0,PAGE,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert_ok((long)ptr,"mmap");
+    /*set fake footer and fake header*/
+    footer* fake_f = (footer*)ptr;
+    fake_f->size = ULONG_MAX;
+    printf("magic num is %lu\n",ULONG_MAX);
+    header* fake_h = (header*)((unsigned long long)ptr + PAGE - sizeof(header));
+    fake_h->size = ULONG_MAX;
+    fake_h->free = 1;
+    curr = (node*)((unsigned long long)ptr + sizeof(footer));
     curr->next = NULL;
     curr->prev = NULL;
-    curr->size = 4096 - sizeof(header) - sizeof(footer);
+    curr->size = PAGE - sizeof(header) - sizeof(footer)- sizeof(header) - sizeof(footer);
+
+    printf("allocated size for users %ld\n",curr->size);
     newptr = split(curr, bytes);
-    fl_replace(newptr, curr);
+    fl_insert(newptr);
 
     return BLOCK_MEM(curr);
 }
@@ -110,57 +139,67 @@ xmalloc(size_t bytes)
 void
 xfree(void* ptr)
 {
+    node *next, *prev;
+    header *hn, *hp=NULL;
     unsigned long long p = (unsigned long long)ptr;
     /*locate the prev and next free blocks*/
     // header of the current block
     header* h = (header*) (p - sizeof(header));
     node* curr = (node*)h;
     curr->free = 0;
+    curr->size = h->size;
     // header of the next block
-    header* hn = (header*) (p + h->size + sizeof(footer));
-    // previous footer
-    footer* f = (footer*) (p - sizeof(header) - sizeof(footer));
-    // previous header
-    header* hp = (header*)((unsigned long long)f - f->size - sizeof(header));
-
-    node *next, *prev;
-
+    hn = (header*) (p + h->size + sizeof(footer));
+    
 	if (hn->free == 0) {  // combine with the next free block
 		next = (node *) hn;
 		curr->next = next->next;       
         curr->prev = next->prev;
-
-		next->next->prev = curr;
-        next->prev->next = curr;
+        if(next->next){
+            next->next->prev = curr;
+        }
+		if(next->prev){
+            next->prev->next = curr;
+        }
 
 		curr->size += next->size + sizeof(header) + sizeof(footer);
 
 		((footer*) ((unsigned long long)curr + sizeof(header) + curr->size))->size = curr->size;
 	}
-
-	if (hp->free == 0) { // combine with the previous free block
-		prev = (node *) hp;
-		prev->size += curr->size + sizeof(header) + sizeof(footer);
-		((footer *) ((unsigned long long)prev + sizeof(header) + prev->size))->size = prev->size;
-	}
-
-	if (hp->free!=0 && hn->free!=0) {
+    // previous footer
+    footer* f = (footer*) (p - sizeof(header) - sizeof(footer));
+    if(f->size < ULONG_MAX){
+        // previous header
+        hp = (header*)((unsigned long long)f - f->size - sizeof(header));
+        if (hp->free == 0) { // combine with the previous free block
+		    prev = (node *) hp;
+		    prev->size += curr->size + sizeof(header) + sizeof(footer);
+		    ((footer *) ((unsigned long long)prev + sizeof(header) + prev->size))->size = prev->size;
+            fl_remove(curr);
+	    }
+    }
+	
+	if ((!hp || hp->free!=0) && hn->free!=0) {
 		// add the new free block to the head of the free list
-        if(!head){
-            head = curr;
-            curr->prev = NULL;
-            curr->next = NULL;
-        }else{
-            if(head->next){
-                head->next->prev = curr;
-            }   
-            curr->next = head->next;
-            head = curr;
-            curr->prev = NULL;
-        }
+        fl_insert(curr);
     }
 }
-
+/* stats prints some debug information regarding the
+ * current program break and the blocks on the free list */
+// Calling sbrk() with an increment of 0 can be used to find the current location of the program break.
+void
+stats(char *prefix)
+{
+	printf("[%s] program break: %10p\n", prefix, sbrk(0));
+	node *ptr = head;
+	printf("[%s] free list: \n", prefix);
+	int		c = 0;
+	while (ptr) {
+		printf("(%d) <%10p> (size: %ld)\n", c, ptr, ptr->size);
+		ptr = ptr->next;
+		c++;
+	}
+}
 void*
 xrealloc(void* prev, size_t bytes)
 {
@@ -170,14 +209,19 @@ xrealloc(void* prev, size_t bytes)
 int 
 main(){
     stats("begin main");
+    printf("sizeof header %ld\n",sizeof(header));
+    printf("sizeof footer %ld\n",sizeof(footer));
 	char           *str, *str2;
-	str = (char *)xmalloc(1);
-	str2 = (char *)xmalloc(1);
+	str = (char *)xmalloc(16);
+	str2 = (char *)xmalloc(16);
+    stats("0");
 	xfree(str);
 	stats("1");
-	str = (char *)xmalloc(2);
+	str = (char *)xmalloc(32);
 	stats("2");
 	xfree(str2);
+    stats("3");
 	xfree(str);
 	stats("end main");
+    return 0;
 }
