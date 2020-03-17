@@ -120,7 +120,7 @@ xmalloc(size_t bytes)
     /*set fake footer and fake header*/
     footer* fake_f = (footer*)ptr;
     fake_f->size = ULONG_MAX;
-    printf("magic num is %lu\n",ULONG_MAX);
+
     header* fake_h = (header*)((unsigned long long)ptr + PAGE - sizeof(header));
     fake_h->size = ULONG_MAX;
     fake_h->free = 1;
@@ -129,7 +129,7 @@ xmalloc(size_t bytes)
     curr->prev = NULL;
     curr->size = PAGE - sizeof(header) - sizeof(footer)- sizeof(header) - sizeof(footer);
 
-    printf("allocated size for users %ld\n",curr->size);
+    //printf("allocated size for users %ld\n",curr->size);
     newptr = split(curr, bytes);
     fl_insert(newptr);
 
@@ -190,7 +190,7 @@ xfree(void* ptr)
 void
 stats(char *prefix)
 {
-	printf("[%s] program break: %10p\n", prefix, sbrk(0));
+	//printf("[%s] program break: %10p\n", prefix, sbrk(0));
 	node *ptr = head;
 	printf("[%s] free list: \n", prefix);
 	int		c = 0;
@@ -206,7 +206,7 @@ xrealloc(void* prev, size_t bytes)
     // TODO: write an optimized realloc
     return 0;
 }
-int 
+/*int 
 main(){
     stats("begin main");
     printf("sizeof header %ld\n",sizeof(header));
@@ -225,3 +225,4 @@ main(){
 	stats("end main");
     return 0;
 }
+*/

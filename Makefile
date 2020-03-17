@@ -8,7 +8,7 @@ HDRS := $(wildcard *.h)
 SRCS := $(wildcard *.c)
 OBJS := $(SRCS:.c=.o)
 
-CFLAGS := -g -Og -Wall -Werror
+CFLAGS := -g -Wall -Werror
 LDLIBS := -lpthread
 
 all: $(BINS)

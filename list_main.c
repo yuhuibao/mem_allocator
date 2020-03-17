@@ -24,7 +24,7 @@
 #include "xmalloc.h"
 #include "list.h"
 
-#define THREADS 4
+#define THREADS 1
 
 typedef struct num_task {
     cell* vals;
@@ -127,8 +127,10 @@ main(int argc, char* argv[])
     data_top  = atol(argv[1]);
 
     tasks = xmalloc(data_top * sizeof(num_task*));
+    stats("1");
     for (int ii = 0; ii < data_top; ++ii) {
         tasks[ii] = xmalloc(sizeof(num_task));
+        stats("2");
         tasks[ii]->vals  = cons(ii, 0);
         tasks[ii]->steps = -1;
         tasks[ii]->dibs  = 0;
@@ -160,8 +162,10 @@ main(int argc, char* argv[])
     for (int ii = 0; ii < data_top; ++ii) {
         free_list(tasks[ii]->vals);
         xfree(tasks[ii]);
+        stats("xfree");
     }
     xfree(tasks);
+    stats("end");
 
     return 0;
 }

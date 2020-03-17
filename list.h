@@ -14,6 +14,7 @@ cell*
 cons(long item, cell* rest)
 {
     cell* xs = xmalloc(sizeof(cell));
+    stats("cons");
     xs->item = item;
     xs->rest = rest;
     return xs;
@@ -38,6 +39,7 @@ free_list(cell* xs)
     while (xs) {
         cell* ys = xs->rest;
         xfree(xs);
+        stats("free");
         xs = ys;
     }
 }
