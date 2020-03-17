@@ -121,6 +121,9 @@ void* xmalloc(size_t bytes) {
     fl_remove(curr);
 
     if (curr->size == bytes) {
+      header* h = (header*)curr;
+      h->isFree = 0;
+      printf("allocate, %ld, %p\n", bytes, block_mem);
       return block_mem;
     }
 
@@ -195,7 +198,9 @@ void xfree(void* ptr) {
     if (next->prev) {
       next->prev->next = curr;
     }
-
+    if(head == next){
+      head = curr;
+    }
     curr->size += next->size + sizeof(header) + sizeof(footer);
 
     ((footer*)((unsigned long long)curr + sizeof(header) + curr->size))->size =
