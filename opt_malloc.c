@@ -87,6 +87,10 @@ void fl_insert(node* n) {
 /*splits the block ptr_b by creating a new block after size bytes,
 and return this new block */
 node* split(node* ptr_b, size_t size) {
+  //the rest space in the block is not enough  
+  if(ptr_b->size - size < sizeof(header) + sizeof(footer)){
+        return NULL;
+  }
   void* block_mem = BLOCK_MEM(ptr_b);
   node* newptr_b =
       (node*)((unsigned long long)block_mem + size + sizeof(footer));
@@ -126,10 +130,14 @@ void* xmalloc(size_t bytes) {
       printf("allocate, %ld, %p\n", bytes, block_mem);
       return block_mem;
     }
+    
 
     newptr = split(curr, bytes);
     // insert the new free block
-    fl_insert(newptr);
+    if(newptr){
+        fl_insert(newptr);
+    }
+    
 
     printf("allocate, %ld, %p\n", bytes, block_mem);
 
@@ -212,6 +220,10 @@ void xfree(void* ptr) {
     // previous header
     hp = (header*)((unsigned long long)f - f->size - sizeof(header));
     if (hp->isFree) {  // combine with the previous free block
+      if(hn->isFree){
+        fl_remove(curr);
+      }
+      
       prev = (node*)hp;
       prev->size += curr->size + sizeof(header) + sizeof(footer);
       ((footer*)((unsigned long long)prev + sizeof(header) + prev->size))
