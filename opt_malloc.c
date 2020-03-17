@@ -8,7 +8,7 @@
 // convert node* ptr to address of the mem block
 #define BLOCK_MEM(ptr) ((void*)((unsigned long long)ptr + sizeof(header)))
 #define BLOCK_HEADER(ptr) ((node*)((unsigned long long)ptr - sizeof(header)))
-#define PAGE 4096
+#define PAGE 4096*64
 
 typedef struct node_t {
   int isfree;
@@ -127,7 +127,7 @@ void* xmalloc(size_t bytes) {
     if (curr->size == bytes) {
       header* h = (header*)curr;
       h->isFree = 0;
-      printf("allocate, %ld, %p\n", bytes, block_mem);
+      //printf("allocate, %ld, %p\n", bytes, block_mem);
       return block_mem;
     }
     
@@ -139,7 +139,7 @@ void* xmalloc(size_t bytes) {
     }
     
 
-    printf("allocate, %ld, %p\n", bytes, block_mem);
+    //printf("allocate, %ld, %p\n", bytes, block_mem);
 
     return block_mem;
   }
@@ -152,7 +152,7 @@ void* xmalloc(size_t bytes) {
 
   ptr = BLOCK_MEM(curr);
 
-  printf("allocate, %ld, %p\n", bytes, ptr);
+  //printf("allocate, %ld, %p\n", bytes, ptr);
 
   return ptr;
 }
@@ -235,7 +235,7 @@ void xfree(void* ptr) {
     // add the new free block to the head of the free list
     fl_insert(curr);
   }
-  printf("free, %ld, %p\n",h->size,ptr);
+  //printf("free, %ld, %p\n",h->size,ptr);
 }
 
 /* stats prints some debug information regarding the
