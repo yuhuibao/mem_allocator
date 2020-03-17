@@ -11,7 +11,7 @@
 #define PAGE 4096
 
 typedef struct node_t {
-  int free;
+  int isfree;
   size_t size;  // size of allocated mem for users but actually allocated size
                 // is size+header+footer
   struct node_t* next;
@@ -91,7 +91,7 @@ node* split(node* ptr_b, size_t size) {
   node* newptr_b =
       (node*)((unsigned long long)block_mem + size + sizeof(footer));
   newptr_b->size = ptr_b->size - size - sizeof(header) - sizeof(footer);
-  newptr_b->free = 0;
+  newptr_b->isfree = 1;
   // add footer to the new free block
   footer* new_f =
       (footer*)((unsigned long long)newptr_b + sizeof(header) + newptr_b->size);
@@ -180,7 +180,7 @@ void xfree(void* ptr) {
   // header of the current block
   header* h = (header*)(p - sizeof(header));
   node* curr = (node*)h;
-  curr->free = 0;
+  curr->isfree = 1;
   curr->size = h->size;
   // header of the next block
   hn = (header*)(p + h->size + sizeof(footer));
@@ -211,7 +211,6 @@ void xfree(void* ptr) {
       prev->size += curr->size + sizeof(header) + sizeof(footer);
       ((footer*)((unsigned long long)prev + sizeof(header) + prev->size))
           ->size = prev->size;
-      fl_remove(curr);
     }
   }
 
@@ -219,6 +218,7 @@ void xfree(void* ptr) {
     // add the new free block to the head of the free list
     fl_insert(curr);
   }
+  printf("free, %ld, %p\n",h->size,ptr);
 }
 
 /* stats prints some debug information regarding the
