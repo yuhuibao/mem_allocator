@@ -12,161 +12,148 @@
 // To calculate this:
 //  - calculate the entire sequence for each starting value
 //    using multiple threads.
-//  - calculate the length of the sequence 
+//  - calculate the length of the sequence
 // Next
 
-#include <stdio.h>
-#include <pthread.h>
 #include <assert.h>
-#include <unistd.h>
+#include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
-#include "xmalloc.h"
 #include "list.h"
+#include "xmalloc.h"
 
 #define THREADS 1
 
 typedef struct num_task {
-    cell* vals;
-    long  steps;
-    int   dibs;
-    pthread_mutex_t lock;
+  cell* vals;
+  long steps;
+  int dibs;
+  pthread_mutex_t lock;
 } num_task;
 
 num_task** tasks;
 long data_top = 0;
 
-long
-collatz_step(long n)
-{
-    if (n % 2 == 0) {
-        return n/2;
-    }
-    else {
-        return 3*n + 1;
-    }
+long collatz_step(long n) {
+  if (n % 2 == 0) {
+    return n / 2;
+  } else {
+    return 3 * n + 1;
+  }
 }
 
-cell*
-iterate(cell* xs)
-{
-    long vv = 0;
-    for (int jj = 0; vv != 1 && jj < 50; ++jj) {
-        vv = collatz_step(xs->item);
-        xs = cons(vv, xs);
-    }
-    return xs;
+cell* iterate(cell* xs) {
+  long vv = 0;
+  for (int jj = 0; vv != 1 && jj < 50; ++jj) {
+    vv = collatz_step(xs->item);
+    xs = cons(vv, xs);
+  }
+  return xs;
 }
 
-int
-scan_and_iterate()
-{
-    long done_count = 0;
-    long base = random() % data_top;
+int scan_and_iterate() {
+  long done_count = 0;
+  long base = random() % data_top;
 
-    for (long i0 = 1; i0 < data_top; ++i0) {
-        long ii = 1 + (base + i0) % (data_top - 1);
+  for (long i0 = 1; i0 < data_top; ++i0) {
+    long ii = 1 + (base + i0) % (data_top - 1);
 
-        pthread_mutex_lock(&(tasks[ii]->lock));
-        int skip = tasks[ii]->dibs;
-        if (!skip) {
-            tasks[ii]->dibs = 1;
-        }
-        pthread_mutex_unlock(&(tasks[ii]->lock));
-        if (skip) {
-            continue;
-        }
-
-        cell* xs = tasks[ii]->vals;
-        long vv = xs->item;
-
-        if (vv > 1) {
-            xs = copy_list(xs);
-            xs = iterate(xs);
-            free_list(tasks[ii]->vals);
-            tasks[ii]->vals = xs;
-        }
-        else {
-            if (tasks[ii]->steps == -1) {
-                tasks[ii]->steps = count_list(tasks[ii]->vals) - 1;
-            }
-
-            done_count += 1;
-        }
-
-        pthread_mutex_lock(&(tasks[ii]->lock));
-        tasks[ii]->dibs = 0;
-        pthread_mutex_unlock(&(tasks[ii]->lock));
+    pthread_mutex_lock(&(tasks[ii]->lock));
+    int skip = tasks[ii]->dibs;
+    if (!skip) {
+      tasks[ii]->dibs = 1;
+    }
+    pthread_mutex_unlock(&(tasks[ii]->lock));
+    if (skip) {
+      continue;
     }
 
-    return done_count == (data_top - 1);
+    cell* xs = tasks[ii]->vals;
+    long vv = xs->item;
+
+    if (vv > 1) {
+      xs = copy_list(xs);
+      xs = iterate(xs);
+      free_list(tasks[ii]->vals);
+      tasks[ii]->vals = xs;
+    } else {
+      if (tasks[ii]->steps == -1) {
+        tasks[ii]->steps = count_list(tasks[ii]->vals) - 1;
+      }
+
+      done_count += 1;
+    }
+
+    pthread_mutex_lock(&(tasks[ii]->lock));
+    tasks[ii]->dibs = 0;
+    pthread_mutex_unlock(&(tasks[ii]->lock));
+  }
+
+  return done_count == (data_top - 1);
 }
 
-void*
-worker(void* _arg)
-{
-    int done = 0;
-    while (!done) {
-        done = scan_and_iterate();
-    }
-    return 0;
+void* worker(void* _arg) {
+  int done = 0;
+  while (!done) {
+    done = scan_and_iterate();
+  }
+  return 0;
 }
 
-int
-main(int argc, char* argv[])
-{
-    pthread_t threads[THREADS];
-    int rv;
+int main(int argc, char* argv[]) {
+  pthread_t threads[THREADS];
+  int rv;
 
-    if (argc != 2) {
-        printf("Usage:\n");
-        printf("\t%s TOP\n", argv[0]);
-        return 1;
+  if (argc != 2) {
+    printf("Usage:\n");
+    printf("\t%s TOP\n", argv[0]);
+    return 1;
+  }
+
+  data_top = atol(argv[1]);
+
+  tasks = xmalloc(data_top * sizeof(num_task*));
+  // stats("1");
+  for (int ii = 0; ii < data_top; ++ii) {
+    tasks[ii] = xmalloc(sizeof(num_task));
+    // stats("2");
+    tasks[ii]->vals = cons(ii, 0);
+    tasks[ii]->steps = -1;
+    tasks[ii]->dibs = 0;
+    pthread_mutex_init(&(tasks[ii]->lock), 0);
+  }
+
+  for (int ii = 0; ii < THREADS; ++ii) {
+    rv = pthread_create(&(threads[ii]), 0, worker, 0);
+    assert(rv == 0);
+  }
+
+  for (int ii = 0; ii < THREADS; ++ii) {
+    rv = pthread_join(threads[ii], 0);
+    assert(rv == 0);
+  }
+
+  long max_v = 0;
+  long max_s = 0;
+
+  for (int ii = 0; ii < data_top; ++ii) {
+    if (tasks[ii]->steps > max_s) {
+      max_v = ii;
+      max_s = tasks[ii]->steps;
     }
+  }
 
-    data_top  = atol(argv[1]);
+  printf("Max steps is at %ld: %ld steps\n", max_v, max_s);
 
-    tasks = xmalloc(data_top * sizeof(num_task*));
-    stats("1");
-    for (int ii = 0; ii < data_top; ++ii) {
-        tasks[ii] = xmalloc(sizeof(num_task));
-        stats("2");
-        tasks[ii]->vals  = cons(ii, 0);
-        tasks[ii]->steps = -1;
-        tasks[ii]->dibs  = 0;
-        pthread_mutex_init(&(tasks[ii]->lock), 0);
-    }
+  for (int ii = 0; ii < data_top; ++ii) {
+    free_list(tasks[ii]->vals);
+    xfree(tasks[ii]);
+    // stats("xfree");
+  }
+  xfree(tasks);
+  //   stats("end");
 
-    for (int ii = 0; ii < THREADS; ++ii) {
-        rv = pthread_create(&(threads[ii]), 0, worker, 0);
-        assert(rv == 0);
-    }
-
-    for (int ii = 0; ii < THREADS; ++ii) {
-        rv = pthread_join(threads[ii], 0);
-        assert(rv == 0);
-    }
-
-    long max_v = 0;
-    long max_s = 0;
-
-    for (int ii = 0; ii < data_top; ++ii) {
-        if (tasks[ii]->steps > max_s) {
-            max_v = ii;
-            max_s = tasks[ii]->steps;
-        }
-    }
-
-    printf("Max steps is at %ld: %ld steps\n", max_v, max_s);
-
-    for (int ii = 0; ii < data_top; ++ii) {
-        free_list(tasks[ii]->vals);
-        xfree(tasks[ii]);
-        stats("xfree");
-    }
-    xfree(tasks);
-    stats("end");
-
-    return 0;
+  return 0;
 }
-
