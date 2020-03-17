@@ -8,7 +8,7 @@
 // convert node* ptr to address of the mem block
 #define BLOCK_MEM(ptr) ((void*)((unsigned long long)ptr + sizeof(header)))
 #define BLOCK_HEADER(ptr) ((node*)((unsigned long long)ptr - sizeof(header)))
-#define PAGE 4096*64
+#define PAGE 4096
 
 typedef struct node_t {
   int isfree;
@@ -89,6 +89,7 @@ and return this new block */
 node* split(node* ptr_b, size_t size) {
   //the rest space in the block is not enough  
   if(ptr_b->size - size < sizeof(header) + sizeof(footer)){
+        ptr_b->isfree = 0;
         return NULL;
   }
   void* block_mem = BLOCK_MEM(ptr_b);
@@ -112,9 +113,13 @@ node* split(node* ptr_b, size_t size) {
 
 /*traverse the free list to find the first block whose size >= bytes*/
 void* xmalloc(size_t bytes) {
+  
   void *block_mem, *ptr;
   node *curr = head, *newptr;
 
+  if(bytes > 4048){
+      return allocate_morethan_page(bytes);
+  }
   while (curr) {
     if (curr->size < bytes) {
       curr = curr->next;
@@ -135,12 +140,10 @@ void* xmalloc(size_t bytes) {
     newptr = split(curr, bytes);
     // insert the new free block
     if(newptr){
-        fl_insert(newptr);
+      fl_insert(newptr);
     }
     
-
     //printf("allocate, %ld, %p\n", bytes, block_mem);
-
     return block_mem;
   }
 
@@ -148,7 +151,9 @@ void* xmalloc(size_t bytes) {
 
   // printf("allocated size for users %ld\n",curr->size);
   newptr = split(curr, bytes);
-  fl_insert(newptr);
+  if(newptr){
+    fl_insert(newptr);
+  }
 
   ptr = BLOCK_MEM(curr);
 
@@ -156,7 +161,18 @@ void* xmalloc(size_t bytes) {
 
   return ptr;
 }
-
+void* allocate_morethan_page(size_t bytes){
+    void* ptr =
+        mmap(0, bytes+sizeof(header)+sizeof(footer), PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert_ok((long)ptr,"mmap");
+    header* h = (header*)ptr;
+    h->isFree=0;
+    h->size=bytes;
+    void* block_mem =BLOCK_MEM(ptr);
+    footer* f = (footer*)((unsigned long long)ptr + sizeof(header) + h->size);
+    f->size=bytes;
+    return block_mem;
+}
 node* create_new_page() {
   void* ptr;
   node* curr;
