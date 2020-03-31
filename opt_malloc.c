@@ -241,6 +241,14 @@ void xfree(void* ptr) {
 
     ((footer*)((unsigned long long)curr + sizeof(header) + curr->size))->size =
         curr->size;
+    
+    if(curr->size == 4048){
+      fl_remove(curr);
+      void* start = (void*)((unsigned long long)curr - sizeof(footer));
+      munmap(start,curr->size + 2*sizeof(header) + 2*sizeof(footer));
+      counts--;
+      return;
+    }
   }
   // previous footer
   footer* f = (footer*)(p - sizeof(header) - sizeof(footer));
@@ -256,13 +264,21 @@ void xfree(void* ptr) {
       prev->size += curr->size + sizeof(header) + sizeof(footer);
       ((footer*)((unsigned long long)prev + sizeof(header) + prev->size))
           ->size = prev->size;
+      
+      if(prev->size == 4048){
+        fl_remove(prev);
+        void* start = (void*)((unsigned long long)prev - sizeof(footer));
+        munmap(start,prev->size + 2*sizeof(header) + 2*sizeof(footer));
+        counts--;
+        return;
+      }
     }
   }
 
   if ((!hp || hp->isFree != 1) && hn->isFree != 1) {
     if(curr->size > 4024){
       // deduct fake footer
-      void* start = (unsigned long long)curr - sizeof(footer);
+      void* start = (void*)((unsigned long long)curr - sizeof(footer));
       munmap(start,curr->size + 2*sizeof(header) + 2*sizeof(footer));
       return;
     }
