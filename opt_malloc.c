@@ -9,7 +9,7 @@
 #define BLOCK_MEM(ptr) ((void*)((unsigned long long)ptr + sizeof(header)))
 #define BLOCK_HEADER(ptr) ((node*)((unsigned long long)ptr - sizeof(header)))
 #define PAGE 4096
-
+static int counts;
 typedef struct node_t {
   int isfree;
   size_t size;  // size of allocated mem for users but actually allocated size
@@ -87,14 +87,10 @@ void fl_insert(node* n) {
 /*splits the block ptr_b by creating a new block after size bytes,
 and return this new block */
 node* split(node* ptr_b, size_t size) {
-  //the rest space in the block is not enough  
-  if(ptr_b->size - size < sizeof(header) + sizeof(footer)){
-        ptr_b->isfree = 0;
-        return NULL;
-  }
   void* block_mem = BLOCK_MEM(ptr_b);
   node* newptr_b =
       (node*)((unsigned long long)block_mem + size + sizeof(footer));
+  // in some case this free block size can be 0, that is just header and footer
   newptr_b->size = ptr_b->size - size - sizeof(header) - sizeof(footer);
   newptr_b->isfree = 1;
   // add footer to the new free block
@@ -116,8 +112,8 @@ void* xmalloc(size_t bytes) {
   
   void *block_mem, *ptr;
   node *curr = head, *newptr;
-
-  if(bytes > 4048){
+  // any request bytes > 4024 mmap it 
+  if(bytes + sizeof(header) + sizeof(footer) > 4048){
       return allocate_morethan_page(bytes);
   }
   while (curr) {
@@ -125,7 +121,11 @@ void* xmalloc(size_t bytes) {
       curr = curr->next;
       continue;
     }
-
+    //the rest space in the block is not enough  
+    if(curr->size - bytes < sizeof(header) + sizeof(footer)){
+        curr = curr->next;
+        continue;
+    }
     block_mem = BLOCK_MEM(curr);
     fl_remove(curr);
 
@@ -162,9 +162,21 @@ void* xmalloc(size_t bytes) {
   return ptr;
 }
 void* allocate_morethan_page(size_t bytes){
+    size_t alloc_mem = bytes+2*sizeof(header)+2*sizeof(footer);
     void* ptr =
-        mmap(0, bytes+sizeof(header)+sizeof(footer), PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+        mmap(0, alloc_mem, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     assert_ok((long)ptr,"mmap");
+    printf("memory requested is %ld\n",bytes);
+    /*set fake footer and fake header*/
+    footer* fake_footer = (footer*)ptr;
+    fake_footer->size = ULONG_MAX;
+
+    header* fake_header =
+      (header*)((unsigned long long)ptr + alloc_mem - sizeof(header));
+    fake_header->size = ULONG_MAX;
+    fake_header->isFree = 0;
+    /*create a new free block and allocate it as a whole*/
+    ptr = (node*)((unsigned long long)ptr + sizeof(footer));
     header* h = (header*)ptr;
     h->isFree=0;
     h->size=bytes;
@@ -176,11 +188,11 @@ void* allocate_morethan_page(size_t bytes){
 node* create_new_page() {
   void* ptr;
   node* curr;
-
+  
   ptr =
       mmap(0, PAGE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   assert_ok((long)ptr, "mmap");
-
+  counts++;
   /*set fake footer and fake header*/
   footer* fake_footer = (footer*)ptr;
   fake_footer->size = ULONG_MAX;
@@ -248,6 +260,12 @@ void xfree(void* ptr) {
   }
 
   if ((!hp || hp->isFree != 1) && hn->isFree != 1) {
+    if(curr->size > 4024){
+      // deduct fake footer
+      void* start = (unsigned long long)curr - sizeof(footer);
+      munmap(start,curr->size + 2*sizeof(header) + 2*sizeof(footer));
+      return;
+    }
     // add the new free block to the head of the free list
     fl_insert(curr);
   }
