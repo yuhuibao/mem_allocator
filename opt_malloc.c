@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <string.h>
+#include <pthread.h>
 #include "xmalloc.h"
 // convert node* ptr to address of the mem block
 #define BLOCK_MEM(ptr) ((void*)((unsigned long long)ptr + sizeof(header)))
@@ -31,6 +32,8 @@ typedef struct foot_t {
 node* head = NULL;
 
 node* create_new_page();
+
+pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 
 void assert_ok(long rv, char* call) {
   if (rv < 0) {
@@ -112,10 +115,13 @@ node* split(node* ptr_b, size_t size) {
 void* xmalloc(size_t bytes) {
   
   void *block_mem, *ptr;
+  pthread_mutex_lock(&lock);
   node *curr = head, *newptr;
   // any request bytes > 4024 mmap it 
   if(bytes + sizeof(header) + sizeof(footer) > 4048){
-      return allocate_morethan_page(bytes);
+      block_mem = allocate_morethan_page(bytes);
+      pthread_mutex_unlock(&lock);
+      return block_mem;
   }
   while (curr) {
     if (curr->size < bytes) {
@@ -134,6 +140,7 @@ void* xmalloc(size_t bytes) {
       header* h = (header*)curr;
       h->isFree = 0;
       //printf("allocate, %ld, %p\n", bytes, block_mem);
+      pthread_mutex_unlock(&lock);
       return block_mem;
     }
     
@@ -143,6 +150,7 @@ void* xmalloc(size_t bytes) {
     fl_insert(newptr);
     
     //printf("allocate, %ld, %p\n", bytes, block_mem);
+    pthread_mutex_unlock(&lock);
     return block_mem;
   }
 
@@ -157,7 +165,7 @@ void* xmalloc(size_t bytes) {
   ptr = BLOCK_MEM(curr);
 
   //printf("allocate, %ld, %p\n", bytes, ptr);
-
+  pthread_mutex_unlock(&lock);
   return ptr;
 }
 void* allocate_morethan_page(size_t bytes){
@@ -165,7 +173,7 @@ void* allocate_morethan_page(size_t bytes){
     void* ptr =
         mmap(0, alloc_mem, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     assert_ok((long)ptr,"mmap");
-    printf("memory requested is %ld\n",bytes);
+    //printf("memory requested is %ld\n",bytes);
     /*set fake footer and fake header*/
     footer* fake_footer = (footer*)ptr;
     fake_footer->size = ULONG_MAX;
@@ -212,6 +220,7 @@ node* create_new_page() {
 
 void xfree(void* ptr) {
   node *next, *prev;
+  pthread_mutex_lock(&lock);
   header *hn, *hp = NULL;
   unsigned long long p = (unsigned long long)ptr;
   /*locate the prev and next free blocks*/
@@ -246,6 +255,7 @@ void xfree(void* ptr) {
       void* start = (void*)((unsigned long long)curr - sizeof(footer));
       munmap(start,curr->size + 2*sizeof(header) + 2*sizeof(footer));
       counts--;
+      pthread_mutex_unlock(&lock);
       return;
     }
   }
@@ -269,6 +279,7 @@ void xfree(void* ptr) {
         void* start = (void*)((unsigned long long)prev - sizeof(footer));
         munmap(start,prev->size + 2*sizeof(header) + 2*sizeof(footer));
         counts--;
+        pthread_mutex_unlock(&lock);
         return;
       }
     }
@@ -279,12 +290,14 @@ void xfree(void* ptr) {
       // deduct fake footer
       void* start = (void*)((unsigned long long)curr - sizeof(footer));
       munmap(start,curr->size + 2*sizeof(header) + 2*sizeof(footer));
+      pthread_mutex_unlock(&lock);
       return;
     }
     // add the new free block to the head of the free list
     fl_insert(curr);
   }
   //printf("free, %ld, %p\n",h->size,ptr);
+  pthread_mutex_unlock(&lock);
 }
 
 /* stats prints some debug information regarding the

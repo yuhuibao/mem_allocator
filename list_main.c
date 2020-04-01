@@ -24,7 +24,7 @@
 #include "list.h"
 #include "xmalloc.h"
 
-#define THREADS 1
+#define THREADS 4
 
 typedef struct num_task {
   cell* vals;
