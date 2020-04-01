@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <string.h>
 #include "xmalloc.h"
 // convert node* ptr to address of the mem block
 #define BLOCK_MEM(ptr) ((void*)((unsigned long long)ptr + sizeof(header)))
@@ -122,7 +123,7 @@ void* xmalloc(size_t bytes) {
       continue;
     }
     //the rest space in the block is not enough  
-    if(curr->size - bytes < sizeof(header) + sizeof(footer)){
+    if(curr->size - bytes < sizeof(node) + sizeof(footer)){
         curr = curr->next;
         continue;
     }
@@ -139,9 +140,7 @@ void* xmalloc(size_t bytes) {
 
     newptr = split(curr, bytes);
     // insert the new free block
-    if(newptr){
-      fl_insert(newptr);
-    }
+    fl_insert(newptr);
     
     //printf("allocate, %ld, %p\n", bytes, block_mem);
     return block_mem;
@@ -306,7 +305,11 @@ void stats(char* prefix) {
 
 void* xrealloc(void* prev, size_t bytes) {
   // TODO: write an optimized realloc
-  return 0;
+  void* newptr = xmalloc(bytes);
+  size_t size = BLOCK_HEADER(prev)->size;
+  memcpy(newptr,prev,size);
+  xfree(prev);
+  return newptr;
 }
 
 /*int
