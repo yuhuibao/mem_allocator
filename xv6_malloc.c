@@ -35,12 +35,12 @@ typedef union header Header;
 static Header base;
 static Header *freep;
 pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
+
 void
-xfree(void *ap)
+xfree_helper(void *ap)
 {
   Header *bp, *p;
 
-  pthread_mutex_lock(&lock);
   bp = (Header*)ap - 1;
   for(p = freep; !(bp > p && bp < p->s.ptr); p = p->s.ptr)
     if(p >= p->s.ptr && (bp > p || bp < p->s.ptr))
@@ -56,9 +56,16 @@ xfree(void *ap)
   } else
     p->s.ptr = bp;
   freep = p;
+}
+void
+xfree(void *ap)
+{
+  pthread_mutex_lock(&lock);
+  
+  xfree_helper(ap);
+
   pthread_mutex_unlock(&lock);
 }
-
 static Header*
 morecore(size_t nu)
 {
@@ -73,7 +80,7 @@ morecore(size_t nu)
     return 0;
   hp = (Header*)p;
   hp->s.size = nu;
-  xfree((void*)(hp + 1));
+  xfree_helper((void*)(hp + 1));
   return freep;
 }
 
@@ -103,9 +110,9 @@ xmalloc(size_t nbytes)
       return (void*)(p + 1);
     }
     if(p == freep){
-      pthread_mutex_unlock(&lock);
+      
       p=morecore(nunits);
-      pthread_mutex_lock(&lock);
+      
       if(p == 0){
         pthread_mutex_unlock(&lock);
         return 0;
